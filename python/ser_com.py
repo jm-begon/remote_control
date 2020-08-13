@@ -46,8 +46,7 @@ class Message(object):
     def label(self):
         return self.__class__.__name__
     def _write(self, channel, *bytes):
-        for byte in bytes:
-            channel.write(byte)
+        channel.write(bytes)
 
     def _n2b(self, number, length=NUM_N_BYTES):
         bytes = number.to_bytes(length, "big")
@@ -192,13 +191,27 @@ class PseudoChannel(object):
     def isOpen(self):
         return self.opened
 
-    def write(self, byte):
-        self.historic.append(byte)
-        print(byte)
+    def write(self, data):
+        self.historic.append(data)
+        print("[W]", data)
+        if data == b'syn':
+            self.read_buffer.append(b'synack')
+        elif data == b'ok':
+            self.read_buffer.append(b'sent')
+        else:
+            num = int.from_bytes(data, "big")
+            q = num
+            check = 0
+            while q > 255:
+                q, r = int(q / 255), q % 255
+                check += r
+            check += q
+            self.read_buffer.append(check)
 
     def read(self, n):
         head, tail = self.read_buffer[:n], self.read_buffer[n:]
         self.read_buffer = tail
+        print("[R]", head)
         return head
 
 
