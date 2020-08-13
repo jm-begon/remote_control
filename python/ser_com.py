@@ -37,7 +37,7 @@ class Ack(object):
     def __str__(self):
         if self:
             return "[ACK] {}".format(self.label)
-        return "[NAC] {} -- Reason: {}".format(self.what, self.nac_info)
+        return "[NAC] {} -- Reason: {}".format(self.label, self.nac_info)
 
 
 
@@ -50,7 +50,7 @@ class Message(object):
 
     def _n2b(self, number, length=NUM_N_BYTES):
         bytes = number.to_bytes(length, "big")
-        check = (sum(bytes) % 255).to_bytes(length, "big")
+        check = (sum(bytes) % 256).to_bytes(length, "big")
         return bytes, check
 
     def _read_check(self, channel, *bytes, label=None):
@@ -59,9 +59,9 @@ class Message(object):
         for i, check_byte in enumerate(bytes):
             ans = channel.read(1)
             if len(ans) == 0:
-                return ack("Error with {}th byte. Timeout?".format(i))
+                return ack(nac_info="Error with {}th byte. Timeout?".format(i))
             if ans != check_byte:
-                return ack("Error with {}th byte. Expecting {}, got {}"
+                return ack(nac_info="Error with {}th byte. Expecting {}, got {}"
                            "".format(i, check_byte, ans))
         return ack()
 
@@ -131,8 +131,10 @@ class RemoteController(object):
 
     def __init__(self, port, baudrate=9600, timeout=1, name=None,
                  fail_fast=True):
-        self.con_factory = partial(serial.Serial, port=port, baudrate=baudrate,
-                                   timeout=timeout, writeTimeout=timeout)
+        # self.con_factory = partial(serial.Serial, port=port, baudrate=baudrate,
+        #                            timeout=timeout, writeTimeout=timeout)
+        self.con_factory = partial(PseudoChannel, port=port, baudrate=baudrate,
+                                    timeout=timeout, writeTimeout=timeout)
         self.connection = None
         name = self.__class__.gen_name() if name is None else name
         self.logger = logging.getLogger(name)
@@ -172,6 +174,7 @@ class PseudoChannel(object):
         self.writeTimeout = writeTimeout
         self.historic = []
         self.read_buffer = []
+        self.logger = logging.getLogger("Pseudo channel")
 
     def __repr__(self):
         return "{}(port={}, baudrate={}, timeout={}, writeTimeout={}).{}" \
@@ -194,16 +197,20 @@ class PseudoChannel(object):
     def write(self, data):
         self.historic.append(data)
         print("[W]", data)
+        self.logger.info("[W] {}".format(data))
         if data == b'syn':
+            self.logger.info("[W] SYN")
             self.read_buffer.append(b'synack')
         elif data == b'ok':
+            self.logger.info("[W] OK")
             self.read_buffer.append(b'sent')
         else:
+            self.logger.info("[W] byte")
             num = int.from_bytes(data, "big")
             q = num
             check = 0
-            while q > 255:
-                q, r = int(q / 255), q % 255
+            while q >= 256:
+                q, r = int(q / 256), q % 256
                 check += r
             check += q
             self.read_buffer.append(check)
@@ -211,7 +218,8 @@ class PseudoChannel(object):
     def read(self, n):
         head, tail = self.read_buffer[:n], self.read_buffer[n:]
         self.read_buffer = tail
-        print("[R]", head)
+        self.logger.info("[R] {}".format(head))
+
         return head
 
 
